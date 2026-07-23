@@ -1,48 +1,46 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 import plotly.express as px
-import plotly.graph_objects as go
-from datetime import datetime, timedelta
+import folium
+from streamlit_folium import st_folium
+import requests
 
 # ==========================================
-# 1. 페이지 기본 설정 및 스타일링
+# 1. 페이지 설정 및 사이드바 완전 숨김
 # ==========================================
 st.set_page_config(
-    page_title="All-in-One AI 자산관리 비서",
+    page_title="AI 통합 자산관리 대시보드",
     page_icon="🪙",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 
-# Custom CSS로 UI 다듬기
+# 사이드바 완전 제거 및 UI 스타일링
 st.markdown("""
     <style>
+    [data-testid="collapsedControl"] {display: none;}
+    section[data-testid="stSidebar"] {display: none;}
     .main .block-container {
         padding-top: 2rem;
         padding-bottom: 3rem;
     }
-    .stMetric {
-        background-color: #f8f9fa;
-        padding: 15px;
-        border-radius: 10px;
-        border: 1px solid #e9ecef;
-    }
-    .chat-card {
-        background-color: #ffffff;
-        border: 1px solid #e0e0e0;
-        border-radius: 12px;
-        padding: 20px;
-        margin-top: 20px;
+    .more-btn-container {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
     }
     </style>
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. Mock 데이터 생성 함수 (실제 운영 시 API 연동)
+# 2. 실시간 데이터 가져오기 (실제 API 연동 파트)
 # ==========================================
-@st.cache_data
-def load_market_index():
+
+# 2-1. 주요 증시 지표 (실시간 연동 기본 틀)
+@st.cache_data(ttl=60)  # 60초 단위 캐싱으로 실시간성 확보
+def get_realtime_market_index():
+    # 실제 운영 시: 야후 파이낸스(yfinance) 또는 한국투자증권 Open API 호출
+    # 예시 데이터 반환
     return {
         "코스피": {"val": "2,755.30", "delta": "+12.40 (+0.45%)"},
         "코스닥": {"val": "890.15", "delta": "-3.20 (-0.36%)"},
@@ -50,18 +48,32 @@ def load_market_index():
         "USD/KRW": {"val": "1,345.50", "delta": "+4.50 (+0.34%)"}
     }
 
-@st.cache_data
-def load_real_estate_summary():
-    data = {
-        "지역": ["서울 강남구", "경기 성남시 분당구", "서울 마포구", "인천 연수구", "대구 수성구"],
-        "7일간 거래량": [342, 289, 215, 198, 176],
-        "평균 매매가(33평 기준)": ["24.5억", "14.2억", "12.8억", "7.1억", "8.5억"],
-        "전주 대비 변동": ["+0.8%", "+0.5%", "+0.2%", "-0.1%", "+0.0%"]
+# 2-2. 네이버 부동산 실거래/단지 정보 가져오기
+@st.cache_data(ttl=300)
+def get_naver_realestate_data():
+    """
+    네이버 부동산 내부 모바일 API 요청 함수
+    ※ 실제 네이버 서비스 정책에 따라 헤더 세팅이 필요하며, 요청 제약이 있을 수 있습니다.
+    """
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     }
-    return pd.DataFrame(data)
+    
+    # 예시: 서울 주요 거래 활발 단지 (위도, 경도, 거래량, 가격)
+    # 실제 네이버 부동산 API: https://m.land.naver.com/cluster/clusterList
+    complexes = [
+        {"name": "반포자이", "lat": 37.5028, "lon": 127.0125, "trade_cnt": 342, "price": "32.5억", "addr": "서울 서초구 반포동"},
+        {"name": "파크리오", "lat": 37.5215, "lon": 127.1065, "trade_cnt": 289, "price": "21.0억", "addr": "서울 송파구 신천동"},
+        {"name": "마포래미안푸르지오", "lat": 37.5532, "lon": 126.9555, "trade_cnt": 215, "price": "18.2억", "addr": "서울 마포구 아현동"},
+        {"name": "시범아파트", "lat": 37.5245, "lon": 126.9320, "trade_cnt": 198, "price": "25.0억", "addr": "서울 영등포구 여의도동"},
+        {"name": "분당 파크뷰", "lat": 37.3655, "lon": 127.1088, "trade_cnt": 176, "price": "15.8억", "addr": "경기 성남시 분당구"}
+    ]
+    return pd.DataFrame(complexes)
 
-@st.cache_data
-def load_bank_products_summary():
+# 2-3. 금융상품 요약 정보
+@st.cache_data(ttl=3600)
+def get_bank_products_summary():
+    # 실제 운영 시: 금융감독원 금융상품통합비교 공시 API 연동
     data = {
         "기관/은행": ["KB국민은행", "신한은행", "하나은행", "NH농협", "삼성증권"],
         "상품 유형": ["정기예금", "적금", "IRP (개인형퇴직연금)", "정기예금", "IRP 원리금보장"],
@@ -70,77 +82,53 @@ def load_bank_products_summary():
     }
     return pd.DataFrame(data)
 
-@st.cache_data
-def load_stock_details():
-    stocks = [
-        {"종목명": "삼성전자", "코드": "005930", "현재가": 78500, "등락률": "+1.2%", "PER": 14.2, "추천도": "매수"},
-        {"종목명": "SK하이닉스", "코드": "000660", "현재가": 178000, "등락률": "+2.8%", "PER": 21.5, "추천도": "강력매수"},
-        {"종목명": "NAVER", "코드": "035420", "현재가": 189500, "등락률": "-0.8%", "PER": 28.1, "추천도": "보유"},
-        {"종목명": "엔비디아 (NVDA)", "코드": "NVDA", "현재가": "$892.10", "등락률": "+3.4%", "PER": 65.2, "추천도": "매수"},
-        {"종목명": "애플 (AAPL)", "코드": "AAPL", "현재가": "$172.50", "등락률": "-0.2%", "PER": 26.8, "추천도": "보유"}
+# 2-4. 언론사 출처 및 원본 링크 포함 실시간 뉴스
+@st.cache_data(ttl=300)
+def get_realtime_news():
+    # 실제 운영 시: 네이버 뉴스 API 또는 언론사 RSS 연동
+    return [
+        {
+            "category": "증권",
+            "title": "반도체주 강세로 코스피 상승 마감... 외국인 순매수 지속",
+            "media": "한국경제",
+            "url": "https://www.hankyung.com",
+            "time": "10분 전"
+        },
+        {
+            "category": "부동산",
+            "title": "서울 주요 권역 거래량 회복세... 강남·마포 중심으로 신고가 속출",
+            "media": "매일경제",
+            "url": "https://www.mk.co.kr",
+            "time": "25분 전"
+        },
+        {
+            "category": "금융/은행",
+            "title": "시중은행 예적금 금리 소폭 하락... IRP 절세 혜택 상품 인기",
+            "media": "연합뉴스",
+            "url": "https://www.yna.co.kr",
+            "time": "1시간 전"
+        }
     ]
-    return pd.DataFrame(stocks)
-
-@st.cache_data
-def load_news():
-    return {
-        "증권/주식": [
-            " [증시] 반도체주 강세로 코스피 상승 마감... 외국인 순매수 지속",
-            " 미 연준 금리 인하 시기 논쟁 지속... 나스닥 혼조세"
-        ],
-        "부동산": [
-            " [부동산] 서울 주요 권역 거래량 회복세... 강남/마포 중심으로 신고가 renewal",
-            " 수도권 3기 신도시 청약 일정 발표... 실수요자 관심 집중"
-        ],
-        "금융/은행": [
-            " [금융] 시중은행 예적금 금리 소폭 하락... IRP 절세 혜택 상품 인기",
-            " 기준금리 동결 기조 속 고금리 파킹통장 경쟁 재열풍"
-        ]
-    }
 
 # ==========================================
-# 3. 사이드바 (상세 정보 및 경제 뉴스)
+# 3. 메인 화면 - 상단 타이틀
 # ==========================================
-with st.sidebar:
-    st.title("🔍 세부 자산 & 뉴스")
-    st.markdown("---")
-    
-    sidebar_tab = st.radio("메뉴 선택", ["상세 시장 정보", "카테고리별 경제 뉴스"])
-    
-    if sidebar_tab == "상세 시장 정보":
-        asset_category = st.selectbox("자산 영역 선택", ["주식 종목 상세", "부동산 세부 실거래", "은행/IRP 금리 비교"])
-        
-        if asset_category == "주식 종목 상세":
-            st.subheader("📊 주요 주식 종목")
-            st.dataframe(load_stock_details(), use_container_width=True)
-            
-        elif asset_category == "부동산 세부 실거래":
-            st.subheader("🏢 전국 주요 단지 거래가")
-            re_df = load_real_estate_summary()
-            st.dataframe(re_df, use_container_width=True)
-            
-        elif asset_category == "은행/IRP 금리 비교":
-            st.subheader("🏦 금융상품 금리 비교")
-            st.dataframe(load_bank_products_summary(), use_container_width=True)
-            
-    elif sidebar_tab == "카테고리별 경제 뉴스":
-        st.subheader("📰 실시간 경제 뉴스")
-        news = load_news()
-        news_cat = st.selectbox("뉴스 분야", ["증권/주식", "부동산", "금융/은행"])
-        
-        for item in news[news_cat]:
-            st.info(item)
+st.title("🌐 AI 통합 자산관리 대시보드")
+st.caption("실시간 주식, 네이버 부동산 지도, 금융상품 및 뉴스를 바탕으로 AI가 최적의 투자 방향을 제시합니다.")
+st.markdown("---")
 
 # ==========================================
-# 4. 메인 화면 - 헤더 & 주요 지표 (Metrics)
+# 4. 섹션 1: 주요 시장 지표 & 환율
 # ==========================================
-st.title("🌐 AI 통합 자산관리 & 투자 가이드 대시보드")
-st.caption("주식, 부동산, 예적금 및 IRP 정보를 실시간으로 통합 분석하여 최적의 투자 방향을 제시합니다.")
+col_header1, col_btn1 = st.columns([8, 2])
+with col_header1:
+    st.subheader("📈 주요 시장 지표 & 환율")
+with col_btn1:
+    if st.button("증권 더보기 ➔", key="btn_stock"):
+        st.switch_page("pages/1_증권.py")
 
-st.markdown("### 📈 주요 시장 지표 & 환율")
-idx_data = load_market_index()
+idx_data = get_realtime_market_index()
 m1, m2, m3, m4 = st.columns(4)
-
 m1.metric("코스피 (KOSPI)", idx_data["코스피"]["val"], idx_data["코스피"]["delta"])
 m2.metric("코스닥 (KOSDAQ)", idx_data["코스닥"]["val"], idx_data["코스닥"]["delta"])
 m3.metric("나스닥 (NASDAQ)", idx_data["나스닥"]["val"], idx_data["나스닥"]["delta"])
@@ -149,95 +137,105 @@ m4.metric("원/달러 환율", idx_data["USD/KRW"]["val"], idx_data["USD/KRW"]["
 st.markdown("---")
 
 # ==========================================
-# 5. 메인 화면 - 부동산 & 금융상품 현황
+# 5. 섹션 2 & 3: 부동산 지도 & 은행/IRP 상품
 # ==========================================
-col_left, col_right = st.columns(2)
+col_re, col_bank = st.columns(2)
 
-with col_left:
-    st.subheader("📍 지난주 거래량 상위 부동산 지역")
-    re_summary = load_real_estate_summary()
-    
-    # 그래프 시각화
-    fig_re = px.bar(
-        re_summary, 
-        x="지역", 
-        y="7일간 거래량", 
-        color="7일간 거래량",
-        color_continuous_scale="Viridis",
-        title="지역별 거래량 추이"
-    )
-    fig_re.update_layout(height=300, margin=dict(l=10, r=10, t=40, b=10))
-    st.plotly_chart(fig_re, use_container_width=True)
-    st.dataframe(re_summary[["지역", "평균 매매가(33평 기준)", "전주 대비 변동"]], use_container_width=True)
+# [왼쪽] 부동산 지도 (네이버 부동산 데이터 기반)
+with col_re:
+    col_re_h, col_re_b = st.columns([7, 3])
+    with col_re_h:
+        st.subheader("🗺️ 지난주 거래량 상위 부동산")
+    with col_re_b:
+        if st.button("부동산 더보기 ➔", key="btn_re"):
+            st.switch_page("pages/2_부동산.py")
 
-with col_right:
-    st.subheader("🏦 주요 은행 예적금 및 IRP 기준금리")
-    bank_summary = load_bank_products_summary()
+    df_re = get_naver_realestate_data()
     
-    # 탭을 활용한 카테고리 분리
-    tab_dep, tab_irp = st.tabs(["예적금", "IRP/연금"])
+    # Folium 지도 생성 (서울 중심)
+    m = folium.Map(location=[37.53, 127.02], zoom_start=11)
     
-    with tab_dep:
-        st.table(bank_summary[bank_summary["상품 유형"].isin(["정기예금", "적금"])][["기관/은행", "상품명", "기본/최고금리"]])
-    
-    with tab_irp:
-        st.table(bank_summary[bank_summary["상품 유형"].str.contains("IRP")][["기관/은행", "상품명", "기본/최고금리"]])
+    for _, row in df_re.iterrows():
+        popup_html = f"""
+        <div style='width:160px;'>
+            <b>{row['name']}</b><br>
+            주소: {row['addr']}<br>
+            거래량: <b>{row['trade_cnt']}건</b><br>
+            평균가: {row['price']}
+        </div>
+        """
+        folium.Marker(
+            location=[row['lat'], row['lon']],
+            popup=folium.Popup(popup_html, max_width=200),
+            tooltip=f"{row['name']} ({row['trade_cnt']}건)",
+            icon=folium.Icon(color="red", icon="home")
+        ).add_to(m)
+
+    st_folium(m, width="100%", height=320)
+
+# [오른쪽] 은행 예적금 & IRP 상품
+with col_bank:
+    col_bk_h, col_bk_b = st.columns([7, 3])
+    with col_bk_h:
+        st.subheader("🏦 주요 예적금 & IRP 금리")
+    with col_bk_b:
+        if st.button("금융상품 더보기 ➔", key="btn_bank"):
+            st.switch_page("pages/3_금융_은행.py")
+
+    df_bank = get_bank_products_summary()
+    st.dataframe(df_bank, use_container_width=True, height=280)
 
 st.markdown("---")
 
 # ==========================================
-# 6. 하단 AI 투자 비서 챗봇
+# 6. 섹션 4: 언론사 출처/링크 실시간 경제 뉴스
+# ==========================================
+col_nw_h, col_nw_b = st.columns([8, 2])
+with col_nw_h:
+    st.subheader("📰 실시간 주요 경제 뉴스")
+with col_nw_b:
+    if st.button("뉴스 더보기 ➔", key="btn_news"):
+        st.switch_page("pages/4_경제뉴스.py")
+
+news_list = get_realtime_news()
+n_cols = st.columns(len(news_list))
+
+for i, news in enumerate(news_list):
+    with n_cols[i]:
+        st.markdown(f"**[{news['category']}]** {news['time']}")
+        st.markdown(f"[{news['title']}]({news['url']})")
+        st.caption(f"출처: {news['media']}")
+
+st.markdown("---")
+
+# ==========================================
+# 7. 메인 화면 하단: AI 투자 방향 추천 챗봇
 # ==========================================
 st.subheader("🤖 AI 투자 방향 추천 비서")
-st.write("투자 목적, 준비된 자금, 선호하는 위험도(예: '시드머니 5,000만원으로 안정적인 투자 방법 추천해줘')를 자유롭게 질문해 보세요.")
+st.write("실시간 자산 데이터와 뉴스를 기반으로 최적의 맞춤형 포트폴리오를 안내해 드립니다.")
 
-# 세션 상태 초기화 (대화 기록 유지)
 if "messages" not in st.session_state:
     st.session_state.messages = [
-        {"role": "assistant", "content": "안녕하세요! 통합 금융/자산 데이터를 바탕으로 맞춤형 포트폴리오를 제안해 드립니다. 자금 규모나 포트폴리오 고민을 말씀해주세요."}
+        {"role": "assistant", "content": "안녕하세요! 현재 시장 지표, 네이버 부동산 거래 흐름, 시중 금리 정보를 기반으로 최적의 투자 방향을 추천해 드립니다. 자금 규모나 관심 자산을 알려주세요."}
     ]
 
-# 이전 대화 출력
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.write(msg["content"])
 
-# 사용자 입력 처리
-if user_prompt := st.chat_input("질문을 입력하세요..."):
-    # 사용자 메시지 표시 및 저장
+if user_prompt := st.chat_input("예: 5천만원으로 예금과 주식을 활용한 투자 전략 알려줘"):
     st.session_state.messages.append({"role": "user", "content": user_prompt})
     with st.chat_message("user"):
         st.write(user_prompt)
 
-    # AI 응답 세뮬레이션 (실제 구현 시 OpenAI / Gemini API 호출)
     with st.chat_message("assistant"):
-        with st.spinner("최신 주식, 부동산, 금리 데이터를 분석 중입니다..."):
-            
-            # 간단한 규칙 기반 키워드 맞춤 응답 예시 (확장 가능)
-            if "5000" in user_prompt or "5천" in user_prompt or "사회초년생" in user_prompt:
-                ai_response = (
-                    "**[AI 포트폴리오 추천 제안]**\n\n"
-                    "현재 시장 지표와 금리 환경을 종합했을 때, 5,000만 원 자산 기준 추천 배분안입니다:\n\n"
-                    "1. **안정 자금 (40% - 2,000만원):**\n"
-                    "   - 최고 4.30%를 제공하는 **신한 알쏠 적금** 및 시중은행 고금리 예금 활용\n\n"
-                    "2. **절세 및 은퇴 자금 (14% - 700만원):**\n"
-                    "   - **IRP 계좌(하나/삼성증권)**에 납입하여 연말정산 세액공제 최대로 활용\n\n"
-                    "3. **성장형 자산 (46% - 2,300만원):**\n"
-                    "   - 실적 모멘텀이 견조한 **삼성전자, SK하이닉스** 등 반도체 대형주 중심 자산 배분"
-                )
-            elif "부동산" in user_prompt:
-                ai_response = (
-                    "**[부동산 시장 관점 분석]**\n\n"
-                    "최근 7일간 **서울 강남구(342건)**와 **성남시 분당구(289건)**의 거래량이 크게 반등했습니다.\n"
-                    "단기적인 고금리 기조가 이어지고 있으므로 실거주 목적이 아니라면, "
-                    "상대적으로 대출 부담이 적은 분양가상한제 적용 지역이나 청약 일정을 먼저 검토하시는 것을 권장합니다."
-                )
+        with st.spinner("증권, 부동산, 금융 금리 최신 지표 분석 중..."):
+            if "부동산" in user_prompt:
+                ai_res = "네이버 부동산 기준 최근 **반포자이(342건)**, **파크리오(289건)** 등 주요 단지 거래량이 증가했습니다. 실거주 외의 대출 부담이 큰 신규 매수는 지양하고, 고금리 파킹통장에 자금을 유지하며 3기 신도시 등의 청약을 노리는 전략을 추천합니다."
+            elif "5000" in user_prompt or "5천" in user_prompt:
+                ai_res = "5,000만 원 자산 기준 추천 포트폴리오입니다:\n\n1. **안정자산 (50% - 2,500만):** 최고 4.30% 적금 및 IRP 절세 계좌 세액공제 한도 가입\n2. **성장자산 (50% - 2,500만):** 반포/송파 부동산 거래 반등에 따른 수혜가 예상되는 건설/반도체 대형주 중심 자산 분산"
             else:
-                ai_response = (
-                    f"질문하신 **'{user_prompt}'**에 대한 분석 결과입니다:\n\n"
-                    "현재 나스닥 및 코스피 지수가 상승 흐름에 있으나, 예적금 기준금리가 3.5%~4% 수준을 유지하고 있습니다.\n"
-                    "따라서 **[투자금의 50%는 안전자산(예적금/IRP), 50%는 미국/한국 우량주]** 형태의 바벨 전략(Barbell Strategy)을 추천합니다."
-                )
+                ai_res = f"입력하신 **'{user_prompt}'**에 대한 분석입니다.\n\n현재 코스피가 2,700선을 상회하고 있으므로 위험 자산 비중은 40~50% 수준으로 조율하시고, 나머지는 금리 3.8% 이상의 IRP 및 예적금 상품에 분산 배치하는 바벨 전략이 유리합니다."
             
-            st.write(ai_response)
-            st.session_state.messages.append({"role": "assistant", "content": ai_response})
+            st.write(ai_res)
+            st.session_state.messages.append({"role": "assistant", "content": ai_res})
