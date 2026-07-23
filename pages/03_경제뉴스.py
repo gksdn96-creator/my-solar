@@ -1,24 +1,39 @@
 import streamlit as st
+import pandas as pd
 
-st.set_page_config(page_title="카테고리별 경제 뉴스", page_icon="📰", layout="wide")
+st.set_page_config(page_title="경제뉴스 - FinAI", layout="wide")
+st.title("📰 실시간 주요 경제 뉴스")
+st.caption("언론사 공식 출처 제공 및 원문 바로가기 지원")
 
-if st.button("🏠 메인 대시보드로 돌아가기"):
-    st.switch_page("main.py")
-
-st.title("📰 카테고리별 실시간 경제 뉴스")
-
-cat = st.selectbox("뉴스 영역 선택", ["전체", "증권/주식", "부동산", "금융/은행"])
-
-news_items = [
-    {"category": "증권/주식", "title": "반도체주 강세로 코스피 상승 마감... 외국인 순매수 지속", "media": "한국경제", "url": "https://www.hankyung.com", "desc": "외국인 투자자들의 반도체 섹터 집중 매수가 이어지며 지수 상승을 견인했습니다."},
-    {"category": "부동산", "title": "서울 주요 권역 거래량 회복세... 강남·마포 중심으로 신고가 속출", "media": "매일경제", "url": "https://www.mk.co.kr", "desc": "아파트 거래량이 전월 대비 20% 증가하며 급매물이 소진되고 있습니다."},
-    {"category": "금융/은행", "title": "시중은행 예적금 금리 소폭 하락... IRP 절세 혜택 상품 인기", "media": "연합뉴스", "url": "https://www.yna.co.kr", "desc": "금리 인하 기대감에 따라 장기 고금리 상품으로 자금이 몰리는 추세입니다."}
+# 네이버 뉴스 API / BigKinds Open API 확장용 데이터
+news_list = [
+    {
+        "title": "한국은행 금리동결 발표… 부동산 시장에 미칠 영향은?",
+        "media": "연합뉴스",
+        "time": "10분 전",
+        "summary": "한국은행 금융통화위원회가 기준금리를 동결함에 따라 시중 대출금리 향방에 관심이 쏠리고 있다.",
+        "url": "https://www.yna.co.kr"
+    },
+    {
+        "title": "뉴욕증시, 기술주 강세에 나스닥 최고치 경신",
+        "media": "한국경제",
+        "time": "30분 전",
+        "summary": "AI 반도체 수요 지속으로 주요 기술주가 일쑤 상승하며 지수를 끌어올렸다.",
+        "url": "https://www.hankyung.com"
+    },
+    {
+        "title": "서울 아파트 거래량 3개월 연속 상승세… 분당·송파 주도",
+        "media": "매일경제",
+        "time": "1시간 전",
+        "summary": "주요 선호 지역을 중심으로 실수요 매수세가 유입되며 매매 거래량이 점진 회복 중이다.",
+        "url": "https://www.mk.co.kr"
+    }
 ]
 
-for item in news_items:
-    if cat == "전체" or cat == item["category"]:
-        with st.container():
-            st.markdown(f"### [{item['category']}] [{item['title']}]({item['url']})")
-            st.caption(f"언론사: **{item['media']}**")
-            st.write(item["desc"])
-            st.markdown("---")
+for news in news_list:
+    with st.container():
+        st.markdown(f"### [{news['title']}]({news['url']})")
+        st.caption(f"출처: **{news['media']}** | {news['time']}")
+        st.write(news['summary'])
+        st.link_button("원본 기사 읽기 ↗", news['url'])
+        st.divider()
