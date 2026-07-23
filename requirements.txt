@@ -1,6 +1,9 @@
 streamlit
 pandas
 numpy
+scikit-learn
+yfinance
 folium
 streamlit-folium
-scikit-learn
+plotly
+requests
